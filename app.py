@@ -2459,4 +2459,5 @@ if __name__ == "__main__":
             + llm.problem()
         )
 
-    app.run(debug=False)
+    import os
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))

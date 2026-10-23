@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Team{% endblock %}
+{% block heading %}Team{% endblock %}
+{% block subtitle %}Manage who can use StockBridge in {{ org }}{% endblock %}
+{% block content %}
+<div class="card form-card">
+    <h3>Add a team member</h3>
+    <div class="toolbar">
+        <input id="u" placeholder="Username" aria-label="Username">
+        <input id="p" type="password" placeholder="Password (8+ characters)" aria-label="Password">
+        <select id="r" aria-label="Role">
+            <option value="manager">Manager (can approve)</option>
+            <option value="viewer">Viewer (read-only)</option>
+            <option value="admin">Admin (can manage team)</option>
+        </select>
+        <button class="approve" onclick="addUser()">Add member</button>
+    </div>
+</div>
+<div class="table-container">
+<table>
+    <thead><tr><th>Username</th><th>Role</th><th>Action</th></tr></thead>
+    <tbody id="team-table"><tr><td class="empty" colspan="3">Loading...</td></tr></tbody>
+</table>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+
+function load() {
+
+    fetch("/api/team")
+        .then(r => r.json())
+        .then(d => {
+
+            const body = document.getElementById("team-table");
+
+            body.innerHTML = "";
+
+            if (!d || d.length === 0) {
+
+                body.innerHTML =
+                    '<tr><td class="empty" colspan="3">No members</td></tr>';
+
+                return;
+            }
+
+            d.forEach(u => {
+
+                const tr = document.createElement("tr");
+
+                tr.innerHTML = `
+                    <td>${u.username}${u.is_you ? " (you)" : ""}</td>
+
+                    <td>
+                        <span class="status role-${u.role}">
+                            ${u.role}
+                        </span>
+                    </td>
+
+                    <td>
+                        ${u.is_you ? "" :
+                        `<button class="reject"
+                            onclick="removeUser(${u.id})">
+                            Remove
+                        </button>`}
+                    </td>
+                `;
+
+                body.appendChild(tr);
+            });
+        });
+}
+
+
+function addUser() {
+
+    post("/api/team", {
+        username: document.getElementById("u").value,
+        password: document.getElementById("p").value,
+        role: document.getElementById("r").value
+    })
+    .then(d => {
+
+        toast(d.message, !d.success);
+
+        if (d.success) {
+
+            document.getElementById("u").value = "";
+            document.getElementById("p").value = "";
+
+            load();
+        }
+    });
+}
+
+
+function removeUser(id) {
+
+    if (!confirm("Remove this user?")) {
+        return;
+    }
+
+    post(`/api/team/${id}/delete`)
+        .then(d => {
+
+            toast(d.message, !d.success);
+
+            if (d.success) {
+                load();
+            }
+        });
+}
+
+
+load();
+
+</script>
+{% endblock %}

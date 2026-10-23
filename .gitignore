@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+database/*.db
+database/*.db-journal
+database/.secret_key
+database/*.sqbpro
+data/
+__pycache__/
+*.pyc

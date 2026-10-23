@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Inventory{% endblock %}
+{% block heading %}Inventory{% endblock %}
+{% block subtitle %}Current stock position across branches{% endblock %}
+{% block content %}
+<div class="toolbar">
+    <input id="search" type="search" placeholder="Search item or branch" aria-label="Search item or branch">
+    <select id="filter" aria-label="Filter by stock status">
+        <option value="">All stock statuses</option>
+        <option>SHORTAGE</option><option>EXCESS</option><option>BALANCED</option>
+    </select>
+</div>
+<div class="table-container">
+<table>
+    <thead><tr>
+        <th>Item</th><th>Branch</th><th class="num">Current stock</th><th class="num">14-day demand</th>
+        <th class="num">Stock balance</th><th>Status</th><th class="num">Age (days)</th><th>Age status</th>
+    </tr></thead>
+    <tbody id="inventory-table"><tr><td class="empty" colspan="8">Loading...</td></tr></tbody>
+</table>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+let all = [];
+function render() {
+    const q = document.getElementById("search").value.toLowerCase();
+    const f = document.getElementById("filter").value;
+    const rows = all.filter(r => (!f || r.stock_status === f) &&
+        (`${r.item_id} ${r.store_id}`).toLowerCase().includes(q));
+    const body = fillTable("inventory-table", rows, 8, "No inventory matches your filters");
+    rows.forEach(r => {
+        const bal = Number(r.stock_balance || 0);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${r.item_id}</td><td>${r.store_id}</td>
+            <td class="num">${r.current_stock}</td>
+            <td class="num">${Number(r.expected_14_day_demand || 0).toFixed(2)}</td>
+            <td class="num ${bal < 0 ? "neg" : bal > 0 ? "pos" : ""}">${bal.toFixed(2)}</td>
+            <td><span class="status ${r.stock_status}">${r.stock_status}</span></td>
+            <td class="num">${r.inventory_age_days ?? "-"}</td>
+            <td>${r.age_status ? `<span class="status ${r.age_status}">${r.age_status}</span>` : "-"}</td>`;
+        body.appendChild(tr);
+    });
+}
+fetch("/api/inventory").then(r => r.json()).then(d => { all = d; render(); })
+    .catch(() => toast("Could not load inventory", true));
+document.getElementById("search").addEventListener("input", render);
+document.getElementById("filter").addEventListener("change", render);
+</script>
+{% endblock %}

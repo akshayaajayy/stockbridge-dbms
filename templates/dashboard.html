@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block heading %}Dashboard{% endblock %}
+{% block subtitle %}Smart inventory redistribution overview{% endblock %}
+{% block content %}
+<div class="cards">
+    <div class="card hero"><h3>Total savings from approved decisions</h3><p id="total-saving">Loading...</p></div>
+    <div class="card"><h3>Potential savings (pending)</h3><p id="potential-saving">...</p></div>
+    <div class="card"><h3>Total stock (units)</h3><p id="total-stock">...</p></div>
+    <div class="card bad"><h3>Low stock items</h3><p id="low-stock">...</p></div>
+    <div class="card warn"><h3>Aging stock items</h3><p id="aging-stock">...</p></div>
+    <div class="card"><h3>Pending decisions</h3><p id="pending-transfers">...</p></div>
+    <div class="card"><h3>Approved transfers</h3><p id="approved-transfers">...</p></div>
+    <div class="card"><h3>Approved purchases</h3><p id="approved-purchases">...</p></div>
+</div>
+<h2 class="section-title">What would you like to do?</h2>
+<div class="tiles">
+    <a class="tile" href="/transfers"><b>Review recommendations</b><span><em id="tile-pending">0</em> waiting for your decision</span></a>
+    <a class="tile" href="/inventory"><b>Find shortages</b><span>See which branches are short on stock</span></a>
+    <a class="tile" href="/aging"><b>Check aging stock</b><span>Spot old stock worth moving</span></a>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+function setText(id, value) {
+    document.getElementById(id).textContent = value;
+}
+
+function loadDashboard() {
+    fetch("/api/dashboard")
+        .then(r => {
+            if (!r.ok) throw new Error("Failed to load dashboard");
+            return r.json();
+        })
+        .then(d => {
+            setText("total-saving", inr(d.total_saving));
+            setText("potential-saving", inr(d.potential_saving));
+            setText("total-stock", Number(d.total_stock || 0).toLocaleString("en-IN"));
+            setText("low-stock", Number(d.low_stock || 0));
+            setText("aging-stock", Number(d.aging_stock || 0));
+            setText("pending-transfers", Number(d.pending_transfers || 0));
+            setText("approved-transfers", Number(d.approved_transfers || 0) - Number(d.approved_purchases || 0));
+            setText("approved-purchases", Number(d.approved_purchases || 0));
+            setText("tile-pending", Number(d.pending_transfers || 0));
+        })
+        .catch(error => {
+            console.error(error);
+            setText("total-saving", "₹0.00");
+            toast("Could not load dashboard", true);
+        });
+}
+
+loadDashboard();
+</script>
+{% endblock %}

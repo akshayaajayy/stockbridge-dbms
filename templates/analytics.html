@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analytics · StockBridge</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#16202a;--mute:#66727f;--line:#e3e7ec;
+--blue:#2f6fed;--green:#1f9d6b;--amber:#d98b0b;--red:#d64545;--violet:#7b5cd6}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1419;--card:#171e26;--ink:#e8edf2;--mute:#8d99a6;--line:#27313c}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 20px 50px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:8px}
+h1{font-size:24px;margin:0}h2{font-size:17px;margin:30px 0 10px}h3{font-size:12px;margin:0 0 10px;color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.sub{color:var(--mute);margin:2px 0 0}.actions{display:flex;gap:8px;flex-wrap:wrap}
+button,.btn{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer;text-decoration:none}
+button:hover,.btn:hover{border-color:var(--blue)}
+.grid{display:grid;gap:14px}.g4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}.g2{grid-template-columns:repeat(auto-fit,minmax(380px,1fr))}.g3{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.kpi .v{font-size:28px;font-weight:700;line-height:1.1}.kpi .l{color:var(--mute);font-size:12.5px;margin-top:4px}.kpi .n{font-size:12px;color:var(--mute);margin-top:6px}
+.chart{position:relative;height:230px}
+.hero{display:grid;grid-template-columns:200px 1fr;gap:20px;align-items:center}
+@media(max-width:700px){.hero{grid-template-columns:1fr}.g2{grid-template-columns:1fr}}
+.ring{position:relative;height:180px}.ring .mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring .mid b{font-size:32px}.ring .mid span{color:var(--mute);font-size:12px}
+.sc{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.sci{border:1px solid var(--line);border-radius:10px;padding:10px 12px;border-left:4px solid var(--line)}
+.sci.pass{border-left-color:var(--green)}.sci.warn{border-left-color:var(--amber)}.sci.fail{border-left-color:var(--red)}
+.sci .t{display:flex;justify-content:space-between;gap:8px;font-weight:600}.sci .h{color:var(--mute);font-size:12px}
+.tag{font-size:11px;border-radius:20px;padding:1px 8px;font-weight:600}
+.tag.pass{background:#1f9d6b22;color:var(--green)}.tag.warn{background:#d98b0b22;color:var(--amber)}.tag.fail{background:#d6454522;color:var(--red)}.tag.none{background:var(--line);color:var(--mute)}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mute);font-weight:600;font-size:12px}.scroll{overflow:auto;max-height:260px}
+.delta.good{color:var(--green)}.delta.bad{color:var(--red)}
+.note{color:var(--mute);font-size:12px;margin-top:8px}.empty{color:var(--mute);padding:40px 0;text-align:center}
+#toast{position:fixed;bottom:18px;right:18px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:8px;display:none}
+@media print{.actions{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <a href="/" class="btn">← Dashboard</a>
+  <div class="actions">
+    <button id="refresh">Refresh</button>
+    {% if user and user.role == 'admin' %}
+    <button id="baseline">Save current stock as baseline</button>
+    <a class="btn" href="/api/analytics/export.csv">Export AI log (CSV)</a>
+    {% endif %}
+    <button onclick="window.print()">Print / PDF</button>
+  </div>
+</header>
+<h1>Performance &amp; Evaluation</h1>
+<p class="sub" id="stamp">Loading…</p>
+
+<h2>System scorecard</h2>
+<div class="card hero">
+  <div class="ring"><canvas id="cScore"></canvas><div class="mid"><b id="scoreN">–</b><span>targets met</span></div></div>
+  <div class="sc" id="scGrid"></div>
+</div>
+
+<h2>Business impact</h2>
+<div class="grid g4" id="kpis"></div>
+<div class="grid g3" style="margin-top:14px">
+  <div class="card"><h3>Cost: recommended vs naive</h3><div class="chart"><canvas id="cCost"></canvas></div><div class="note" id="costNote"></div></div>
+  <div class="card"><h3>Recommendation status</h3><div class="chart"><canvas id="cStatus"></canvas></div></div>
+  <div class="card"><h3>Cumulative saving (approved)</h3><div class="chart"><canvas id="cSaving"></canvas></div></div>
+</div>
+
+<h2>Inventory &amp; efficiency</h2>
+<div class="grid g4" id="eff"></div>
+<div class="grid g2" style="margin-top:14px">
+  <div class="card"><h3>Stock position by branch</h3><div class="chart"><canvas id="cBranch"></canvas></div></div>
+  <div class="card"><h3>Before vs now</h3><div class="chart"><canvas id="cBase"></canvas></div><div class="note" id="baseNote"></div></div>
+</div>
+
+<div id="aiSection">
+<h2>AI assistant quality</h2>
+<div class="grid g4" id="aiKpis"></div>
+<div class="grid g2" style="margin-top:14px">
+  <div class="card"><h3>Outcome of each question</h3><div class="chart"><canvas id="cOut"></canvas></div></div>
+  <div class="card"><h3>Response time</h3><div class="chart"><canvas id="cLat"></canvas></div></div>
+  <div class="card"><h3>Benchmark accuracy by category</h3><div class="chart"><canvas id="cCat"></canvas></div></div>
+  <div class="card"><h3>Benchmark trend</h3><div class="chart"><canvas id="cTrend"></canvas></div></div>
+</div>
+<div class="card" style="margin-top:14px"><h3 id="evalTitle">Latest benchmark</h3><div class="scroll" id="evalTbl"></div></div>
+</div>
+
+<p class="note" style="margin-top:26px">Costs and analyst-time savings are estimates from the StockBridge cost model. The AI benchmark compares answers with our own SQL (<code>python eval_ai.py</code>); targets are fixed in advance.</p>
+</div>
+<div id="toast"></div>
+
+<script>const CSRF = "{{ csrf }}";</script>
+<script>
+{% raw %}
+const C = {blue:"#2f6fed",green:"#1f9d6b",amber:"#d98b0b",red:"#d64545",violet:"#7b5cd6",grey:"#9aa5b1"};
+const $ = id => document.getElementById(id);
+const fmt = n => n==null ? "–" : Number(n).toLocaleString("en-IN");
+const rs = n => n==null ? "–" : "₹"+Number(n).toLocaleString("en-IN",{maximumFractionDigits:0});
+const pct = n => n==null ? "–" : n+"%";
+const sec = n => n==null ? "–" : (n/1000).toFixed(1)+" s";
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const esc = s => String(s??"").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));
+const charts = {};
+function draw(id, cfg){
+  if(charts[id]) charts[id].destroy();
+  const el = $(id); if(!el) return;
+  cfg.options = Object.assign({responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{labels:{color:css("--mute"),boxWidth:10}}}}, cfg.options||{});
+  if(cfg.options.scales) for(const s of Object.values(cfg.options.scales)){
+    s.ticks = Object.assign({color:css("--mute")}, s.ticks||{}); s.grid = {color:css("--line")};}
+  charts[id] = new Chart(el, cfg);
+}
+const ax = (extra={}) => ({x:{},y:Object.assign({beginAtZero:true},extra)});
+const kpi = (v,l,n="") => `<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div><div class="n">${n}</div></div>`;
+const empty = (id,msg="No data yet") => { const c=$(id); if(c) c.parentNode.innerHTML=`<div class="empty">${msg}</div>`; };
+
+async function load(){
+  const r = await fetch("/api/analytics");
+  if(!r.ok){document.body.innerHTML="<p style='padding:30px'>Access denied.</p>";return;}
+  render(await r.json());
+}
+
+const LABEL = {pass:"Met",warn:"Close",fail:"Below",none:"No data"};
+function render(d){
+  const D=d.decisions,H=d.health,E=d.efficiency,K=d.costs,AI=d.ai,SC=d.scorecard;
+  $("stamp").textContent = "Generated " + d.generated_at.replace("T"," ");
+
+  // scorecard
+  $("scoreN").textContent = SC.scored ? `${SC.passed}/${SC.scored}` : "–";
+  draw("cScore",{type:"doughnut",data:{datasets:[{data:[SC.passed,SC.scored-SC.passed||0.0001],backgroundColor:[C.green,css("--line")],borderWidth:0}]},
+    options:{cutout:"78%",plugins:{legend:{display:false},tooltip:{enabled:false}}}});
+  $("scGrid").innerHTML = SC.items.map(x=>{
+    const v = x.value==null ? "not measured yet" : x.value.toLocaleString("en-IN")+x.unit;
+    const goal = (x.mode=="min"?"target ≥ ":"target ≤ ")+x.target.toLocaleString("en-IN")+x.unit;
+    return `<div class="sci ${x.status}"><div class="t"><span>${x.label}</span><span class="tag ${x.status}">${LABEL[x.status]}</span></div>
+      <div><b>${v}</b> <span class="h">· ${goal}</span></div></div>`}).join("");
+
+  // business impact
+  $("kpis").innerHTML =
+    kpi(rs(D.saving),"Actual saving","From "+fmt(D.total-D.pending)+" decided recommendations")+
+    kpi(pct(D.saving_pct),"Saving vs buying instead","On approved transfers")+
+    kpi(pct(K.reduction_pct),"Lower cost than always-buying","All "+fmt(D.total)+" recommendations")+
+    kpi(pct(D.approval_rate),"Approval rate","Managers agreeing with the engine");
+
+  draw("cCost",{type:"bar",data:{labels:["Always buy","Always transfer","StockBridge"],
+    datasets:[{data:[K.always_buy,K.always_transfer,K.system],backgroundColor:[C.grey,C.grey,C.green],borderRadius:6}]},
+    options:{plugins:{legend:{display:false}},scales:ax({ticks:{callback:v=>rs(v)}})}});
+  $("costNote").textContent = K.reduction_pct==null?"":`Picking the cheaper option each time costs ${K.reduction_pct}% less than always buying.`;
+  draw("cStatus",{type:"doughnut",data:{labels:["Approved","Pending","Rejected"],datasets:[{data:[D.approved,D.pending,D.rejected],backgroundColor:[C.green,C.amber,C.red],borderWidth:0}]},options:{cutout:"62%"}});
+  if(d.savings_timeline.length) draw("cSaving",{type:"line",data:{labels:d.savings_timeline.map(x=>x.day),datasets:[
+    {label:"Cumulative saving",data:d.savings_timeline.map(x=>x.saving),borderColor:C.green,backgroundColor:C.green+"33",fill:true,tension:.3}]},
+    options:{plugins:{legend:{display:false}},scales:ax({ticks:{callback:v=>rs(v)}})}}); else empty("cSaving");
+
+  // inventory & efficiency
+  $("eff").innerHTML =
+    kpi(pct(E.decided_rate),"Recommendations acted on",fmt(E.decided)+" of "+fmt(E.recommendations))+
+    kpi(E.analyst_hours_saved+" h","Analyst time saved (est.)",E.manual_min+" min per decision assumed")+
+    kpi(pct(H.shortage_rate),"Records in shortage",fmt(H.shortage)+" of "+fmt(H.rows))+
+    kpi(pct(H.excess_rate),"Records with excess",fmt(H.excess)+" of "+fmt(H.rows));
+
+  draw("cBranch",{type:"bar",data:{labels:d.by_branch.map(x=>x.store),datasets:[
+    {label:"Shortage",data:d.by_branch.map(x=>x.shortage),backgroundColor:C.red},
+    {label:"Balanced",data:d.by_branch.map(x=>x.balanced),backgroundColor:C.green},
+    {label:"Excess",data:d.by_branch.map(x=>x.excess),backgroundColor:C.amber}]},
+    options:{scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}}}});
+
+  const B=d.baseline;
+  if(B){
+    draw("cBase",{type:"bar",data:{labels:["Shortage","Excess","Aging"],datasets:[
+      {label:"Baseline",data:[B.shortage,B.excess,B.aging],backgroundColor:C.grey,borderRadius:5},
+      {label:"Now",data:[H.shortage,H.excess,H.aging],backgroundColor:C.blue,borderRadius:5}]},options:{scales:ax()}});
+    const dl=(a,b,n)=>{const x=b-a;return `${n}: <span class="delta ${x<=0?"good":"bad"}">${x>0?"+":""}${x}</span>`};
+    $("baseNote").innerHTML = `Since ${B.ts.replace("T"," ")} — `+[dl(B.shortage,H.shortage,"shortage"),dl(B.excess,H.excess,"excess"),dl(B.aging,H.aging,"aging")].join(" · ")+" (negative is better)";
+  } else empty("cBase","No baseline saved.<br>Admins: save one before approving recommendations.");
+
+  // AI
+  if(!AI){ $("aiSection").style.display="none"; return; }
+  $("aiKpis").innerHTML =
+    kpi(fmt(AI.total),"AI questions logged",fmt(AI.answered)+" answered")+
+    kpi(pct(AI.success_rate),"Answered successfully","SQL validity "+pct(AI.sql_validity))+
+    kpi(sec(AI.avg_ms),"Average response","median "+sec(AI.median_ms)+" · p95 "+sec(AI.p95_ms))+
+    kpi(pct(AI.helpful_rate),"Rated helpful",AI.thumbs_up+" up · "+AI.thumbs_down+" down");
+  draw("cOut",{type:"doughnut",data:{labels:["Answered","Query failed","No SQL","Blocked (safety)","Error"],datasets:[{data:[AI.answered,AI.failed_query,AI.no_sql,AI.blocked,AI.errors],
+    backgroundColor:[C.green,C.red,C.grey,C.violet,C.amber],borderWidth:0}]},options:{cutout:"60%"}});
+  draw("cLat",{type:"bar",data:{labels:AI.latency_hist.map(x=>x.label),datasets:[{data:AI.latency_hist.map(x=>x.n),backgroundColor:C.blue,borderRadius:5}]},
+    options:{plugins:{legend:{display:false}},scales:ax({ticks:{precision:0}})}});
+
+  const ev=AI.eval;
+  if(ev){
+    draw("cCat",{type:"bar",data:{labels:ev.by_category.map(x=>x.name),datasets:[{data:ev.by_category.map(x=>x.pct),
+      backgroundColor:ev.by_category.map(x=>x.pct>=90?C.green:x.pct>=70?C.amber:C.red),borderRadius:5}]},
+      options:{plugins:{legend:{display:false}},scales:{y:{min:0,max:100,ticks:{callback:v=>v+"%"}},x:{}}}});
+    draw("cTrend",{type:"line",data:{labels:AI.eval_history.map(x=>x.run),datasets:[
+      {label:"Accuracy %",data:AI.eval_history.map(x=>x.accuracy),borderColor:C.blue,tension:.25},
+      {label:"Safety %",data:AI.eval_history.map(x=>x.safety),borderColor:C.green,tension:.25}]},options:{scales:{y:{min:0,max:100}}}});
+    $("evalTitle").textContent=`Latest benchmark · ${ev.run_ts.replace("T"," ")} · accuracy ${pct(ev.accuracy)} (${ev.n_data} questions) · safety ${pct(ev.safety)} (${ev.n_safety} prompts)`;
+    const fails=ev.cases.filter(c=>!c.passed);
+    $("evalTbl").innerHTML = fails.length ?
+      "<table><tr><th></th><th>Question</th><th>Expected</th><th>Returned</th></tr>"+
+      fails.map(c=>`<tr><td><span class="tag fail">FAIL</span></td><td>${esc(c.question)}</td><td>${esc(c.expected)}</td><td>${esc(c.got)}</td></tr>`).join("")+"</table>"
+      : '<div class="empty">All benchmark cases passed.</div>';
+  } else {
+    empty("cCat"); empty("cTrend");
+    $("evalTbl").innerHTML='<div class="empty">No benchmark yet. Run <code>python eval_ai.py</code>.</div>';
+  }
+}
+
+function toast(m){const t=$("toast");t.textContent=m;t.style.display="block";setTimeout(()=>t.style.display="none",2500)}
+$("refresh").onclick=()=>load().then(()=>toast("Refreshed"));
+const bl=$("baseline"); if(bl) bl.onclick=async()=>{
+  if(!confirm("Save today’s shortage, excess and aging counts as the new baseline?")) return;
+  const r=await fetch("/api/analytics/baseline",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({csrf:CSRF})});
+  const j=await r.json(); toast(j.message||"Done"); load();};
+load();
+{% endraw %}
+</script>
+</body>
+</html>

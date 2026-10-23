@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Aging{% endblock %}
+{% block heading %}Inventory Aging{% endblock %}
+{% block subtitle %}Older inventory is prioritized for redistribution{% endblock %}
+{% block content %}
+<div class="table-container">
+<table>
+    <thead><tr><th>Item</th><th>Branch</th><th class="num">Current stock</th><th>Received date</th><th class="num">Age (days)</th><th>Status</th></tr></thead>
+    <tbody id="aging-table"><tr><td class="empty" colspan="6">Loading...</td></tr></tbody>
+</table>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+fetch("/api/aging").then(r => r.json()).then(data => {
+    const body = fillTable("aging-table", data, 6, "No aging data available");
+    data.forEach(r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${r.item_id}</td><td>${r.store_id}</td><td class="num">${r.current_stock}</td>
+            <td>${r.received_date}</td><td class="num">${r.inventory_age_days}</td>
+            <td><span class="status ${r.age_status}">${r.age_status}</span></td>`;
+        body.appendChild(tr);
+    });
+}).catch(() => toast("Could not load aging data", true));
+</script>
+{% endblock %}

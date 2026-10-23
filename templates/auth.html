@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>StockBridge - {{ "Create organisation" if mode == "register" else "Log in" }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-body">
+<div class="login-wrap">
+    <section class="login-side">
+        <div class="logo">StockBridge</div>
+        <h2>Move stock where it is needed.</h2>
+        <p>Spot shortages and aging stock, then approve transfers between branches in a few clicks.</p>
+    </section>
+    <section class="login-card">
+        <h1>{{ "Create your organisation" if mode == "register" else "Log in" }}</h1>
+        <p class="subtitle">{{ "You become the admin and can add your team afterwards." if mode == "register" else "Sign in to your organisation." }}</p>
+        {% if created %}<div class="alert ok">Organisation created. Log in below.</div>{% endif %}
+        {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+        <form method="post">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <label for="org">Organisation</label>
+            <input id="org" name="org" required autofocus>
+            <label for="username">Username</label>
+            <input id="username" name="username" autocomplete="username" required>
+            <label for="password">Password{% if mode == "register" %} (8+ characters){% endif %}</label>
+            <input id="password" name="password" type="password" minlength="{{ 8 if mode == 'register' else 1 }}" autocomplete="{{ 'new-password' if mode == 'register' else 'current-password' }}" required>
+            <button class="primary" type="submit">{{ "Create organisation" if mode == "register" else "Log in" }}</button>
+        </form>
+        <p class="switch">{% if mode == "register" %}Already registered? <a href="/login">Log in</a>{% else %}New here? <a href="/register">Create an organisation</a>{% endif %}</p>
+    </section>
+</div>
+</body>
+</html>

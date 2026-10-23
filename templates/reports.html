@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Reports{% endblock %}
+{% block heading %}Reports{% endblock %}
+{% block subtitle %}Cost analysis of approved decisions. Savings compare the option you approved with the one you didn't.{% endblock %}
+
+{% block content %}
+
+<div class="stats-grid">
+
+    <div class="stat-card hero">
+        <div class="stat-label">Total savings</div>
+        <div class="stat-value" id="saving">...</div>
+        <div class="stat-note" id="saving-note">&nbsp;</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Actual spend</div>
+        <div class="stat-value" id="spend">...</div>
+        <div class="stat-note">Cost of approved options</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Cost without optimising</div>
+        <div class="stat-value" id="alt">...</div>
+        <div class="stat-note">If the other option was used</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Potential savings</div>
+        <div class="stat-value" id="potential">...</div>
+        <div class="stat-note">From pending recommendations</div>
+    </div>
+
+</div>
+
+<div class="split">
+
+    <section class="panel">
+        <h2 class="panel-title">Approved by method</h2>
+        <div class="method-rows">
+            <div class="method-row">
+                <span class="method transfer">Transfer</span>
+                <b id="n-transfers">0</b>
+                <span class="muted" id="u-transfers">0 units moved</span>
+            </div>
+            <div class="method-row">
+                <span class="method purchase">Purchase</span>
+                <b id="n-purchases">0</b>
+                <span class="muted" id="u-purchases">0 units bought</span>
+            </div>
+        </div>
+        <div class="stack" id="method-stack" aria-hidden="true"></div>
+    </section>
+
+    <section class="panel">
+        <h2 class="panel-title">Decision status</h2>
+        <div class="method-rows">
+            <div class="method-row"><span class="status PENDING">Pending</span><b id="pending">0</b>
+                <span class="muted" id="pending-split"></span></div>
+            <div class="method-row"><span class="status APPROVED">Approved</span><b id="approved">0</b>
+                <span class="muted" id="approval-rate"></span></div>
+            <div class="method-row"><span class="status REJECTED">Rejected</span><b id="rejected">0</b>
+                <span class="muted"></span></div>
+        </div>
+    </section>
+
+</div>
+
+<h2 class="section-title">Recently approved</h2>
+
+<div class="table-container">
+<table>
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>Item</th>
+        <th>Method</th>
+        <th>Route</th>
+        <th class="num">Qty</th>
+        <th class="num">Cost</th>
+        <th class="num">Saved</th>
+        <th>Approved by</th>
+        <th>When</th>
+    </tr>
+    </thead>
+    <tbody id="recent-table">
+        <tr><td class="empty" colspan="9">Loading...</td></tr>
+    </tbody>
+</table>
+</div>
+
+{% endblock %}
+
+{% block script %}
+<script>
+
+function set(id, text) {
+    document.getElementById(id).textContent = text;
+}
+
+async function loadReports() {
+
+    try {
+
+        const response = await fetch("/api/reports");
+
+        if (!response.ok) throw new Error("HTTP " + response.status);
+
+        const d = await response.json();
+
+        set("saving", inr(d.saving));
+        set("spend", inr(d.actual_spend));
+        set("alt", inr(d.alternative_cost));
+        set("potential", inr(d.potential_saving));
+
+        const pct = d.alternative_cost > 0
+            ? (d.saving / d.alternative_cost * 100).toFixed(1)
+            : null;
+
+        set("saving-note", pct !== null
+            ? `${pct}% lower than the alternative`
+            : "Approve a recommendation to start saving");
+
+        set("n-transfers", d.approved_transfers);
+        set("u-transfers", `${d.units_moved} units moved`);
+        set("n-purchases", d.approved_purchases);
+        set("u-purchases", `${d.units_purchased} units bought`);
+
+        const totalApproved = d.approved_transfers + d.approved_purchases;
+        const stack = document.getElementById("method-stack");
+
+        stack.innerHTML = totalApproved === 0 ? "" : `
+            <span class="seg transfer" style="width:${d.approved_transfers / totalApproved * 100}%"></span>
+            <span class="seg purchase" style="width:${d.approved_purchases / totalApproved * 100}%"></span>`;
+
+        set("pending", d.pending);
+        set("pending-split",
+            `${d.pending_transfers} transfer, ${d.pending_purchases} purchase`);
+        set("approved", d.approved);
+        set("rejected", d.rejected);
+
+        const decided = d.approved + d.rejected;
+        set("approval-rate", decided
+            ? `${(d.approved / decided * 100).toFixed(0)}% of decided`
+            : "");
+
+        const body = document.getElementById("recent-table");
+
+        body.innerHTML = "";
+
+        if (!d.recent.length) {
+            body.innerHTML =
+                '<tr><td class="empty" colspan="9">No approved decisions yet</td></tr>';
+            return;
+        }
+
+        d.recent.forEach(r => {
+
+            const tr = document.createElement("tr");
+            const isPurchase = r.method === "PURCHASE";
+
+            tr.innerHTML = `
+                <td>${r.transfer_id}</td>
+                <td>${esc(r.item_id)}</td>
+                <td><span class="method ${isPurchase ? "purchase" : "transfer"}">${isPurchase ? "Purchase" : "Transfer"}</span></td>
+                <td>${esc(r.from)} <span class="arrow">→</span> ${esc(r.to)}</td>
+                <td class="num">${r.quantity}</td>
+                <td class="num">${inr(r.cost)}</td>
+                <td class="num pos">${inr(r.saving)}</td>
+                <td>${esc(r.decided_by || "-")}</td>
+                <td>${esc(r.decided_at ? r.decided_at.slice(0, 16) : "-")}</td>`;
+
+            body.appendChild(tr);
+        });
+
+    } catch (error) {
+
+        console.error(error);
+        toast("Could not load reports", true);
+
+        document.getElementById("recent-table").innerHTML =
+            '<tr><td class="empty" colspan="9">Could not load reports</td></tr>';
+    }
+}
+
+loadReports();
+
+</script>
+{% endblock %}

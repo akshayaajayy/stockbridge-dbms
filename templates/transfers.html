@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+
+{% block title %}Transfers{% endblock %}
+{% block heading %}Transfers & Purchases{% endblock %}
+{% block subtitle %}For every shortage we compare moving stock from another branch against buying new stock, and recommend the cheaper option.{% endblock %}
+
+{% block content %}
+
+<div class="tabs" id="tabs">
+    <button data-f="PENDING" class="on">Pending <em id="n-PENDING">0</em></button>
+    <button data-f="APPROVED">Approved <em id="n-APPROVED">0</em></button>
+    <button data-f="REJECTED">Rejected <em id="n-REJECTED">0</em></button>
+    <button data-f="">All <em id="n-ALL">0</em></button>
+</div>
+
+<div class="toolbar">
+    <select id="method-filter" aria-label="Filter by recommended method">
+        <option value="">Transfers and purchases</option>
+        <option value="TRANSFER">Recommended: transfer</option>
+        <option value="PURCHASE">Recommended: purchase</option>
+    </select>
+    <input id="search" type="search" placeholder="Search item or branch" aria-label="Search item or branch">
+    <button class="ai-btn" onclick="aiBriefing()">✦ AI briefing of pending</button>
+</div>
+
+<div class="table-container">
+<table>
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>Item</th>
+        <th>Recommendation</th>
+        <th>Route</th>
+        <th class="num">Qty</th>
+        <th class="num">Transfer cost</th>
+        <th class="num">Purchase cost</th>
+        <th class="num">You save</th>
+        <th>Status</th>
+        <th>Action</th>
+    </tr>
+    </thead>
+    <tbody id="transfer-table">
+        <tr><td class="empty" colspan="10">Loading...</td></tr>
+    </tbody>
+</table>
+</div>
+
+<div id="why-backdrop" class="backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="why-title" tabindex="-1">
+        <button class="modal-close" onclick="closeWhy()" aria-label="Close">×</button>
+        <div id="why-body"></div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block script %}
+<script>
+
+let allTransfers = [];
+let filter = "PENDING";
+const CAN_ACT = ROLE === "admin" || ROLE === "manager";
+
+async function loadTransfers() {
+
+    try {
+
+        const response = await fetch("/api/transfers");
+
+        if (!response.ok) throw new Error("HTTP " + response.status);
+
+        const data = await response.json();
+
+        allTransfers = Array.isArray(data) ? data : [];
+
+        renderTransfers();
+
+    } catch (error) {
+
+        console.error(error);
+
+        document.getElementById("transfer-table").innerHTML =
+            '<tr><td class="empty" colspan="10">Could not load transfers</td></tr>';
+    }
+}
+
+function statusOf(r) {
+    return String(r.status).toUpperCase();
+}
+
+function renderTransfers() {
+
+    const body = document.getElementById("transfer-table");
+
+    for (const s of ["PENDING", "APPROVED", "REJECTED"]) {
+        document.getElementById("n-" + s).textContent =
+            allTransfers.filter(r => statusOf(r) === s).length;
+    }
+    document.getElementById("n-ALL").textContent = allTransfers.length;
+
+    const method = document.getElementById("method-filter").value;
+    const q = document.getElementById("search").value.toLowerCase().trim();
+
+    const rows = allTransfers.filter(r =>
+        (filter === "" || statusOf(r) === filter) &&
+        (!method || r.recommendation === method) &&
+        (!q || `${r.item_id} ${r.source_store_id} ${r.destination_store_id}`
+                  .toLowerCase().includes(q))
+    );
+
+    body.innerHTML = "";
+
+    if (rows.length === 0) {
+
+        body.innerHTML = `<tr><td class="empty" colspan="10">${
+            filter === "PENDING" && !method && !q
+                ? "Nothing waiting for review"
+                : "No matching records"
+        }</td></tr>`;
+
+        return;
+    }
+
+    rows.forEach(r => {
+
+        const isPurchase = r.recommendation === "PURCHASE";
+        const pending = statusOf(r) === "PENDING";
+
+        const transferCls = isPurchase ? "" : "best";
+        const purchaseCls = isPurchase ? "best" : "";
+
+        const route = isPurchase
+            ? `Supplier <span class="arrow">→</span> ${esc(r.destination_store_id)}`
+            : `${esc(r.source_store_id)} <span class="arrow">→</span> ${esc(r.destination_store_id)}`;
+
+        let action = "";
+
+        if (pending && CAN_ACT) {
+            action = `
+                <button class="approve" onclick="act(${r.transfer_id}, 'approve', this)">
+                    ${isPurchase ? "Approve purchase" : "Approve transfer"}
+                </button>
+                <button class="reject" onclick="act(${r.transfer_id}, 'reject', this)">Reject</button>`;
+        } else if (pending) {
+            action = '<span class="muted">View only</span>';
+        } else if (r.decided_by) {
+            action = `<span class="muted">${esc(r.decided_by)}</span>`;
+        }
+
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+            <td>${r.transfer_id}</td>
+            <td>${esc(r.item_id)}</td>
+            <td><span class="method ${isPurchase ? "purchase" : "transfer"}">${isPurchase ? "Buy new stock" : "Transfer stock"}</span></td>
+            <td>${route}</td>
+            <td class="num">${r.quantity}</td>
+            <td class="num ${transferCls}">${inr(r.transfer_cost)}</td>
+            <td class="num ${purchaseCls}">${inr(r.purchase_cost)}</td>
+            <td class="num pos">${inr(r.saving)}</td>
+            <td><span class="status ${esc(r.status)}">${esc(r.status)}</span></td>
+            <td class="actions">${action}<button class="why" onclick="explain(${r.transfer_id})">Why?</button></td>`;
+
+        body.appendChild(tr);
+    });
+}
+
+async function act(id, kind, button) {
+
+    const row = allTransfers.find(r => r.transfer_id === id);
+    const isPurchase = row && row.recommendation === "PURCHASE";
+
+    const text = kind === "approve"
+        ? (isPurchase
+            ? "Approve this purchase? New stock will be added to the destination branch."
+            : "Approve this transfer? Stock will move from the source branch to the destination branch.")
+        : "Reject this recommendation?";
+
+    if (!confirm(text)) return;
+
+    button.parentElement.querySelectorAll("button")
+        .forEach(b => b.disabled = true);
+
+    try {
+
+        const data = await post(`/api/transfers/${id}/${kind}`);
+
+        toast(data.message, !data.success);
+
+    } catch (error) {
+
+        console.error(error);
+        toast("Request failed. Try again.", true);
+    }
+
+    loadTransfers();
+}
+
+document.getElementById("tabs").addEventListener("click", e => {
+
+    const button = e.target.closest("button");
+    if (!button) return;
+
+    filter = button.dataset.f;
+
+    document.querySelectorAll("#tabs button")
+        .forEach(b => b.classList.toggle("on", b === button));
+
+    renderTransfers();
+});
+
+document.getElementById("method-filter").addEventListener("change", renderTransfers);
+document.getElementById("search").addEventListener("input", renderTransfers);
+
+/* ---------- Explainable recommendation ("Why?") ---------- */
+
+const ICONS = { support: "✓", concern: "!", info: "i" };
+let lastFocus = null;
+
+async function explain(id) {
+
+    lastFocus = document.activeElement;
+
+    const backdrop = document.getElementById("why-backdrop");
+    const body = document.getElementById("why-body");
+
+    body.innerHTML = '<p class="muted">Loading explanation...</p>';
+    backdrop.hidden = false;
+    backdrop.querySelector(".modal").focus();
+
+    try {
+
+        const response = await fetch(`/api/transfers/${id}/explain`);
+
+        if (!response.ok) throw new Error("HTTP " + response.status);
+
+        renderWhy(await response.json());
+
+    } catch (error) {
+
+        console.error(error);
+        body.innerHTML = '<p class="muted">Could not load the explanation.</p>';
+    }
+}
+
+function renderWhy(d) {
+
+    const isPurchase = d.method === "PURCHASE";
+    const c = d.costs;
+    const top = Math.max(c.transfer, c.purchase) || 1;
+
+    const bar = (label, value, best) => `
+        <div class="cost-row">
+            <span class="cost-label">${label}</span>
+            <span class="cost-track"><i class="${best ? "best" : ""}" style="width:${value / top * 100}%"></i></span>
+            <b class="${best ? "best" : ""}">${inr(value)}</b>
+        </div>`;
+
+    document.getElementById("why-body").innerHTML = `
+        <span class="method ${isPurchase ? "purchase" : "transfer"}">${isPurchase ? "Buy new stock" : "Transfer stock"}</span>
+        <h2 id="why-title">${esc(d.headline)}</h2>
+        <p class="why-summary">${esc(d.summary)}</p>
+
+        <div class="confidence ${esc(d.confidence.toLowerCase())}">
+            <b>${esc(d.confidence)} confidence</b>
+            <span>${esc(d.confidence_note)}</span>
+        </div>
+
+        <h3>Cost comparison</h3>
+        ${bar("Transfer", c.transfer, !isPurchase)}
+        ${bar("Purchase", c.purchase, isPurchase)}
+
+        <h3>What the decision is based on</h3>
+        <ul class="factors">
+            ${d.factors.map(f => `
+                <li class="${esc(f.kind)}">
+                    <span class="icon" aria-hidden="true">${ICONS[f.kind] || "i"}</span>
+                    <div><b>${esc(f.title)}</b><p>${esc(f.detail)}</p></div>
+                </li>`).join("")}
+        </ul>
+
+        <h3>What would change it</h3>
+        <p class="why-note">${esc(d.flip_note)}</p>
+
+        <div class="ai-box">
+            <button class="ai-btn" id="ai-review-btn" onclick="aiReview(${d.transfer_id})">✦ Ask AI to review this</button>
+            <div id="ai-take" class="ai-take" hidden></div>
+        </div>
+
+        <p class="why-rule">${esc(d.rule)}</p>`;
+}
+
+async function aiReview(id) {
+
+    const btn = document.getElementById("ai-review-btn");
+    const out = document.getElementById("ai-take");
+
+    btn.disabled = true;
+    out.hidden = false;
+    out.textContent = "Thinking...";
+
+    try {
+
+        const d = await post(`/api/transfers/${id}/ai-explain`);
+
+        out.textContent = d.success ? d.text : (d.message || "The AI could not respond.");
+
+    } catch (error) {
+
+        console.error(error);
+        out.textContent = "Could not reach the server.";
+    }
+
+    btn.disabled = false;
+}
+
+async function aiBriefing() {
+
+    lastFocus = document.activeElement;
+
+    const backdrop = document.getElementById("why-backdrop");
+    const body = document.getElementById("why-body");
+
+    body.innerHTML = '<h2 id="why-title">AI briefing</h2><p class="muted">Reviewing pending recommendations...</p>';
+    backdrop.hidden = false;
+    backdrop.querySelector(".modal").focus();
+
+    try {
+
+        const d = await post("/api/ai/briefing");
+
+        body.innerHTML = `
+            <h2 id="why-title">AI briefing</h2>
+            <p class="muted">${d.success ? `Based on the top ${d.count} pending by saving.` : ""}</p>
+            <div class="ai-take">${esc(d.success ? d.text : (d.message || "The AI could not respond."))}</div>
+            <p class="why-rule">This is advice only. Nothing is approved or changed by the AI.</p>`;
+
+    } catch (error) {
+
+        console.error(error);
+        body.innerHTML = '<h2 id="why-title">AI briefing</h2><p class="muted">Could not reach the server.</p>';
+    }
+}
+
+function closeWhy() {
+
+    document.getElementById("why-backdrop").hidden = true;
+
+    if (lastFocus) lastFocus.focus();
+}
+
+document.getElementById("why-backdrop").addEventListener("click", e => {
+    if (e.target.id === "why-backdrop") closeWhy();
+});
+
+document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !document.getElementById("why-backdrop").hidden) {
+        closeWhy();
+    }
+});
+
+loadTransfers();
+
+</script>
+{% endblock %}

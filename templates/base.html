@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>StockBridge - {% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<nav>
+    <div class="logo">StockBridge</div>
+    <div class="nav-links">
+        {% set links = [('/', 'Dashboard', '▦'), ('/inventory', 'Inventory', '☰'), ('/aging', 'Aging', '◷'), ('/transfers', 'Transfers', '⇄'), ('/branches', 'Branches', '⌂'), ('/reports', 'Reports', '▤'), ('/assistant', 'Assistant', '✦')] %}
+        {% if user and user['role'] in ['admin', 'manager'] %}{% set links = links + [('/analytics', 'Analytics', '◔')] %}{% endif %}
+        {% if user and user['role'] == 'admin' %}{% set links = links + [('/team', 'Team', '☺')] %}{% endif %}
+        {% for path, label, icon in links %}
+        <a href="{{ path }}" class="{{ 'active' if request.path == path else '' }}"><i>{{ icon }}</i>{{ label }}</a>
+        {% endfor %}
+    </div>
+    <div class="user-box">
+        <span class="avatar">{{ (user['username'] if user else '?')[:1]|upper }}</span>
+        <span class="uname">{{ user['username'] if user else '' }}<small>{{ user['role'] if user else '' }}</small></span>
+        <a href="/logout" class="logout">Log out</a>
+    </div>
+</nav>
+<main>
+    <h1>{% block heading %}{% endblock %}</h1>
+    <p class="subtitle">{% block subtitle %}{% endblock %}</p>
+    {% block content %}{% endblock %}
+</main>
+<div id="message" role="status" aria-live="polite"></div>
+<script>
+
+const csrf = "{{ csrf }}";
+const ROLE = "{{ user['role'] if user else '' }}";
+
+function post(url, data = {}) {
+
+    data.csrf = csrf;
+
+    return fetch(url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+    }).then(r => r.json());
+}
+
+/* Escape anything coming from the database before putting it in HTML */
+function esc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;",
+        '"': "&quot;", "'": "&#39;"
+    }[c]));
+}
+
+function inr(value) {
+    return "₹" + Number(value || 0).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
+
+let toastTimer = null;
+
+function toast(message, error = false) {
+
+    const box = document.getElementById("message");
+
+    box.textContent = message;
+    box.className = "show" + (error ? " error" : "");
+
+    clearTimeout(toastTimer);
+
+    toastTimer = setTimeout(() => {
+        box.className = "";
+    }, 4500);
+}
+
+function fillTable(id, data, columns, emptyText) {
+
+    const body = document.getElementById(id);
+
+    body.innerHTML = "";
+
+    if (!data || data.length === 0) {
+
+        const tr = document.createElement("tr");
+
+        tr.innerHTML =
+            `<td class="empty" colspan="${columns}">${emptyText}</td>`;
+
+        body.appendChild(tr);
+    }
+
+    return body;
+}
+
+</script>
+{% block script %}{% endblock %}
+</body>
+</html>

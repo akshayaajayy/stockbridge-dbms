@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Branches{% endblock %}
+{% block heading %}Branches{% endblock %}
+{% block subtitle %}Stock distribution across branches{% endblock %}
+{% block content %}
+<div class="table-container">
+<table>
+    <thead><tr><th>Branch</th><th class="num">Total stock</th><th>Share of all stock</th><th class="num">Inventory items</th></tr></thead>
+    <tbody id="branch-table"><tr><td class="empty" colspan="4">Loading...</td></tr></tbody>
+</table>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+fetch("/api/branches").then(r => r.json()).then(data => {
+    const body = fillTable("branch-table", data, 4, "No branches found");
+    const total = data.reduce((s, r) => s + r.total_stock, 0) || 1;
+    data.forEach(r => {
+        const pct = (r.total_stock / total * 100);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${r.store_id}</td><td class="num">${Number(r.total_stock).toLocaleString("en-IN")}</td>
+            <td><div class="bar"><span><i style="width:${pct}%"></i></span><b>${pct.toFixed(1)}%</b></div></td>
+            <td class="num">${r.inventory_items}</td>`;
+        body.appendChild(tr);
+    });
+}).catch(() => toast("Could not load branches", true));
+</script>
+{% endblock %}

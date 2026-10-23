@@ -2458,6 +2458,4 @@ if __name__ == "__main__":
             "AI not set up: "
             + llm.problem()
         )
-
-    import os
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
